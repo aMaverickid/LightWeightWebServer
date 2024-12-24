@@ -3,6 +3,13 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include "fastcgi/fastcgi.h"
+
+int fcgi_sock; // fastcgi socket
+int fcgi_connected; // fastcgi connection status
+extern u_short fcgi_reqID; // fastcgi request ID
+NV_PAIR params[100];
+int num; // number of parameters
 
 static char sock_buff[BUFFER_SIZE];
 static int sock_idx, sock_max;
@@ -61,7 +68,8 @@ void handleReq(int sock, char *head, char *body, int bodyLen)
     if (strcmp(uri, "/") == 0) {
         strcpy(uri, "/index.html"); // 将根路径映射到默认首页
     }
-    if (strstr(uri, ".html") || strstr(uri, ".css") || strstr(uri, ".js") || strstr(uri, ".png") || strstr(uri, ".jpg")) {
+    if (strstr(uri, ".html") || strstr(uri, ".css") || strstr(uri, ".js") || strstr(uri, ".png") || strstr(uri, ".jpg") \
+            || strstr(uri, ".txt") || strstr(uri, ".pdf")) {
         // 处理静态资源请求
         char filePath[512];
         transFileName(uri);
@@ -100,11 +108,29 @@ void handleReq(int sock, char *head, char *body, int bodyLen)
         else if (strstr(uri, ".js")) contentType = "application/javascript";
         else if (strstr(uri, ".png")) contentType = "image/png";
         else if (strstr(uri, ".jpg")) contentType = "image/jpeg";
+        else if (strstr(uri, ".txt")) contentType = "text/plain";
+        else if (strstr(uri, ".pdf")) contentType = "application/pdf";
 
         Log("Send file: %s, size: %ld, content type: %s", filePath, fileStat.st_size, contentType);
         sendHttpResp(sock, 200, fileContent, fileStat.st_size, contentType);
         free(fileContent);
-    }    
+    } 
+    else {
+        // 如果请求路径不是静态资源，转发到FastCGI服务器
+        char *buf = (char *)malloc(1024);
+        char *contextType = "text/html";
+        int len = 0;
+        int rc = sendFastCGIRequest(method, uri, query, (u_char *)body, bodyLen);
+        if (rc == 0) {
+            rc = getFastCGIResponse(&buf, &len, contextType);
+        }
+        if (rc != 0) {
+            sendHttpResp(sock, rc, "Gateway Timeout", strlen("Gateway Timeout"), "text/plain");
+        } else {
+            sendHttpResp(sock, rc, buf, len, contextType);
+        }
+        free(buf);
+    }
 }
 
 void transFileName(char *uri) {
@@ -171,8 +197,154 @@ int sendHttpResp(int sock, int statCode, char *resp, int len, char * content_typ
 
 int sendFastCGIRequest(char *method, char *uri, char *query, u_char *post, int postLen) {
 
+    // 检查网关连接
+    if (fcgi_connected != 1) {
+        Log(YELLOW"Connecting to FastCGI gateway\n");        
+        if (connect_to_fcgi_gateway("127.0.0.1", 9000) < 0) {
+            Log(RED"Failed to connect to FastCGI gateway");
+            return 504;
+        }        
+    }
+    
+    num = 0;
+    addParam("REQUEST_METHOD", method); // 请求方法
+    addParam("SCRIPT_FILENAME", "C:\\web\\do.php"); // 脚本文件名
+    addParam("CONTENT_TYPE","application/x-www-form-urlencoded"); // 内容类型
+    if (strcmp(method, "GET") == 0) {
+        addParam("CONTENT_LENGTH", "0"); // 内容长度        
+    } else {
+        char dataLen[10];
+        sprintf(dataLen, "%d", postLen);
+        addParam("CONTENT_LENGTH", dataLen); // 内容长度
+    }
+    addParam("QUERY_STRING", query); // 查询字符串
+    addParam("REMOTE_ADDR", "127.0.0.1"); // 客户端地址
+    addParam("REMOTE_PORT", "2682"); // 客户端端口
+
+    Log("Sending FastCGI request: %s %s", method, "C:\\web\\do.php");
+    Log(YELLOW"Post data: %s", post);
+    fcgi_reqID++;
+    if (fcgi_begin_request(fcgi_sock, fcgi_reqID) < 0) return 504;
+    if (fcgi_params(fcgi_sock, fcgi_reqID, params, num) < 0) return 504;
+    if (fcgi_param_end(fcgi_sock, fcgi_reqID) < 0) return 504;
+    if (fcgi_stdin(fcgi_sock, fcgi_reqID, post, postLen) < 0) return 504;
+
+    return 0;
 }
 
 int getFastCGIResponse(char **buf, int *len, char *content_type) {
+    int rc = 200;
 
+    u_char *std_out, *std_err;
+    size_t out_len, err_len;
+    int app_stat, proto_stat;
+    if (fcgi_getResp(fcgi_sock, &std_out, &out_len, &std_err, &err_len, &app_stat, &proto_stat) < 0) {
+        Log(RED"Failed to get FastCGI response");
+        disconnectFCGI();
+        rc = 504;
+    }
+
+    if (proto_stat != 0 || app_stat != 0) {
+        Log(RED"FastCGI response error: app_stat=%d, proto_stat=%d", app_stat, proto_stat);
+        rc = 502;
+    }
+
+    if (err_len > 0) {
+        Log(RED"\n***std_err(len=%lu):\n\n%s", err_len, std_err);
+    }
+    if (out_len > 0) {
+        Log(YELLOW"\n***std_out(len=%lu):\n\n%s", out_len, std_out);
+
+        char head[1024];
+        char *p = (char *)std_out;
+        int i = 0;
+
+        memset(head, 0, sizeof(head));
+        while (*p != '\0')
+        {
+            if (i >= 3 && *p == '\n' && *(p-1) == '\r' && *(p-2) == '\n' && *(p-3) == '\r')
+                break;
+            head[i++] = *p++;
+        }
+        if (*p == '\n') p++;
+        
+        getContentTypeFromHeader(head, content_type);
+        Log(PURPLE"FastCGI response header: %s", head);
+        if (content_type[0] == '\0') {            
+            strcmp(content_type, "text/html");
+        }
+        
+        getStatusFromHeader(head, &rc);
+        // Log("FastCGI response status: %d", rc);
+        if (rc != 404) {
+            *len = strlen((char *)std_out) -i;
+            *buf = (char *)realloc(*buf, *len);
+            if (*buf == NULL) rc = 500;
+            else memcpy(*buf, p, *len);
+        }
+
+    }
+    Log("FastCGI response status: %d", rc);
+    return rc;
+}
+
+
+int connect_to_fcgi_gateway(char ip[], u_short port) {
+    if (fcgi_sock <= 0) {
+        fcgi_sock = fcgi_init_socket();
+    }
+
+    if (fcgi_connect(fcgi_sock, ip, port) < 0) {
+        Log(RED"Failed to connect to FastCGI gateway");
+        return -1;
+    }
+
+    fcgi_connected = 1;
+    Log("Connected to FastCGI gateway");
+    return 0;
+}
+
+void disconnectFCGI() {
+    if (fcgi_sock > 0) {
+        close(fcgi_sock);
+        fcgi_sock = 0;
+        fcgi_connected = 0;
+    }
+}
+
+void addParam(const char *name, const char *value)
+{
+	strcpy(params[num].name, name);
+	strcpy(params[num].value, value);
+	num ++;
+}
+
+void getContentTypeFromHeader(char *head, char *content_type)
+{
+    char *p = strstr(head, "Content-type: ");
+    if (p == NULL) {   
+        Log(YELLOW "No Content-Type in header");
+        return;             
+    }
+    p += strlen("Content-type: ");
+    int i = 0;
+    while (*p != '\r' && *p != '\n') {
+        content_type[i++] = *p++;
+    }    
+    content_type[i] = '\0';
+}
+
+void getStatusFromHeader(char *head, int *status)
+{
+    char *p = strstr(head, "HTTP/1.1 ");
+    if (p == NULL) {
+        Log(YELLOW "No status in header");   
+        return;     
+    }
+    p += strlen("HTTP/1.1 ");
+    *status = 0;
+    while (*p != ' ') {
+        *status = *status * 10 + (*p - '0');
+        p++;
+    }
 }
