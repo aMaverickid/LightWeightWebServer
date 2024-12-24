@@ -1,0 +1,6 @@
+header { background-color: #003088;  height: 110px;  align-content: center; }
+.logo { height: 100px; }
+.title { color: #ffffff;  font-size: 40px;  margin-left: 20px; vertical-align:middle; }
+.login { font-size: 20px; }
+img { margin-left: 20px; margin-top: 10px; vertical-align:middle; }
+input { font-size: 20px; }
