@@ -100,7 +100,7 @@ void *Server::connectWithClient(void* arg) {
         
         if (server->thread_count < MAX_CONNENCTION) {
             pthread_mutex_lock(&lock);
-            Log("Thread count: %d, tid: %d", server->thread_count, tid);
+            Log("Thread count: %d, tid: %u", server->thread_count, tid);
             server->thread_id[server->thread_count++] = tid;        
             pthread_mutex_unlock(&lock);
         } else {
@@ -202,7 +202,7 @@ void Server::stop_server() {
     Log("Server closed with socket id: %d", sockid);
     for (int i = 0; i < thread_count; i++) {        
         pthread_join(thread_id[i], NULL);
-        Log(YELLOW"Joining thread: %d of %d, id: %d", i, thread_count, thread_id[i]);
+        Log(YELLOW"Joining thread: %d of %d, id: %u", i, thread_count, thread_id[i]);
     }  
 }
 
@@ -211,7 +211,7 @@ int main() {
     // 创建socket主线程，该线程等待客户端连接
     // server->connectWithClient();
     pthread_create(&server->main_id, NULL, &Server::connectWithClient, (void *)server);
-    Log("Main thread created with id: %d", server->main_id);
+    Log("Main thread created with id: %u", server->main_id);
     server->thread_id[server->thread_count++] = server->main_id;
     // 等待用户输入命令，输入exit时关闭服务器
     while (1) {

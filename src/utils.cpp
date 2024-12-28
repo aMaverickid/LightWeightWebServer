@@ -68,11 +68,12 @@ void handleReq(int sock, char *head, char *body, int bodyLen)
     if (strcmp(uri, "/") == 0) {
         strcpy(uri, "/index.html"); // 将根路径映射到默认首页
     }
-    if (strstr(uri, ".html") || strstr(uri, ".css") || strstr(uri, ".js") || strstr(uri, ".png") || strstr(uri, ".jpg") \
-            || strstr(uri, ".txt") || strstr(uri, ".pdf")) {
+    if (!strstr(uri, ".php")) {
         // 处理静态资源请求
         char filePath[512];
+        Log(YELLOW"original uri: %s", uri);
         transFileName(uri);
+        Log(YELLOW"now uri: %s", uri);
         snprintf(filePath, sizeof(filePath), "%s", uri); // 文件路径，假设当前目录为根目录
 
         Log(YELLOW"Request for static file: %s", filePath);
@@ -118,26 +119,50 @@ void handleReq(int sock, char *head, char *body, int bodyLen)
     else {
         // 如果请求路径不是静态资源，转发到FastCGI服务器
         char *buf = (char *)malloc(1024);
-        char *contextType = "text/html";
+        char *contextType = (char *)malloc(1024);
+        // set as 'text/html' by default
+        char filePath[512];
+        Log(YELLOW"original uri: %s", uri);
+        transFileName(uri);        
+        strcpy(contextType, "text/html");
         int len = 0;
         int rc = sendFastCGIRequest(method, uri, query, (u_char *)body, bodyLen);
-        if (rc == 0) {
-            rc = getFastCGIResponse(&buf, &len, contextType);
-        }
-        if (rc != 0) {
+        if (rc == 504) {
             sendHttpResp(sock, rc, "Gateway Timeout", strlen("Gateway Timeout"), "text/plain");
-        } else {
-            sendHttpResp(sock, rc, buf, len, contextType);
+        }
+        else if (rc == 0) {
+            rc = getFastCGIResponse(&buf, &len, contextType);
+            if (rc == 504) {
+                sendHttpResp(sock, rc, "Gateway Timeout", strlen("Gateway Timeout"), "text/plain");
+            }
+            else if (rc == 502) {
+                sendHttpResp(sock, rc, "Bad Gateway", strlen("Bad Gateway"), "text/plain");
+            }
+            else if (rc == 500) {
+                sendHttpResp(sock, rc, "Internal Server Error", strlen("Internal Server Error"), "text/plain");
+            }
+            else {
+                sendHttpResp(sock, rc, buf, len, contextType);
+            }
         }
         free(buf);
+        free(contextType);
     }
 }
 
 void transFileName(char *uri) {
     char buff[256] = {};
-    strcpy(buff, "../2682");
-    strcat(buff, uri);
-    strcpy(uri, buff);
+    // 动态资源使用绝对路径
+    if (strstr(uri, ".php")) {
+        // C:\Users\Wan Zhenjie\OneDrive\24Fall\计网\lab\lab8\轻量级WEB服务器\2682\server
+        strcpy(buff, "C:\\Users\\Wan Zhenjie\\OneDrive\\24Fall\\计网\\lab\\lab8\\轻量级WEB服务器\\2682\\server\\");
+        strcat(buff, uri);
+        strcpy(uri, buff);
+    } else {
+        strcpy(buff, "../2682");
+        strcat(buff, uri);
+        strcpy(uri, buff);
+    }
 }
 
 int sendHttpResp(int sock, int statCode, char *resp, int len, char * content_type)
@@ -208,20 +233,21 @@ int sendFastCGIRequest(char *method, char *uri, char *query, u_char *post, int p
     
     num = 0;
     addParam("REQUEST_METHOD", method); // 请求方法
-    addParam("SCRIPT_FILENAME", "C:\\web\\do.php"); // 脚本文件名
+    addParam("SCRIPT_FILENAME", uri); // 脚本文件名
     addParam("CONTENT_TYPE","application/x-www-form-urlencoded"); // 内容类型
     if (strcmp(method, "GET") == 0) {
         addParam("CONTENT_LENGTH", "0"); // 内容长度        
     } else {
         char dataLen[10];
         sprintf(dataLen, "%d", postLen);
+        Log("Post data length: %s", dataLen);
         addParam("CONTENT_LENGTH", dataLen); // 内容长度
     }
     addParam("QUERY_STRING", query); // 查询字符串
     addParam("REMOTE_ADDR", "127.0.0.1"); // 客户端地址
     addParam("REMOTE_PORT", "2682"); // 客户端端口
 
-    Log("Sending FastCGI request: %s %s", method, "C:\\web\\do.php");
+    Log("Sending FastCGI request: %s %s", method, uri);
     Log(YELLOW"Post data: %s", post);
     fcgi_reqID++;
     if (fcgi_begin_request(fcgi_sock, fcgi_reqID) < 0) return 504;
@@ -258,7 +284,7 @@ int getFastCGIResponse(char **buf, int *len, char *content_type) {
         char head[1024];
         char *p = (char *)std_out;
         int i = 0;
-
+        // Log("FastCGI response content type: %s", content_type);
         memset(head, 0, sizeof(head));
         while (*p != '\0')
         {
@@ -266,8 +292,7 @@ int getFastCGIResponse(char **buf, int *len, char *content_type) {
                 break;
             head[i++] = *p++;
         }
-        if (*p == '\n') p++;
-        
+        if (*p == '\n') p++;        
         getContentTypeFromHeader(head, content_type);
         Log(PURPLE"FastCGI response header: %s", head);
         if (content_type[0] == '\0') {            
@@ -275,7 +300,6 @@ int getFastCGIResponse(char **buf, int *len, char *content_type) {
         }
         
         getStatusFromHeader(head, &rc);
-        // Log("FastCGI response status: %d", rc);
         if (rc != 404) {
             *len = strlen((char *)std_out) -i;
             *buf = (char *)realloc(*buf, *len);
@@ -323,7 +347,7 @@ void getContentTypeFromHeader(char *head, char *content_type)
 {
     char *p = strstr(head, "Content-type: ");
     if (p == NULL) {   
-        Log(YELLOW "No Content-Type in header");
+        Log(YELLOW "No Content-type in header");
         return;             
     }
     p += strlen("Content-type: ");
@@ -338,7 +362,8 @@ void getStatusFromHeader(char *head, int *status)
 {
     char *p = strstr(head, "HTTP/1.1 ");
     if (p == NULL) {
-        Log(YELLOW "No status in header");   
+        Log(YELLOW "No status in header");  
+        *status = 200;
         return;     
     }
     p += strlen("HTTP/1.1 ");

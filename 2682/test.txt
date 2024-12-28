@@ -1,11 +1,6 @@
-我真服了，怎么到你这事情就这么多？
-上课只会无脑念PPT，讲的什么东西也不知道。你看看有人听吗你就在上面叽里呱啦讲一大堆。还有那个逼小测，先不说你每周搞一次，那小测题目类型见都没见过你就往上面放，还整一个研究生考试题目恶心谁呢？每次小测时间又短，题目只能交一次不能修改答案，真是纯纯拿平时分恶心人的玩意。最后是那个勾使实验，别的班做6个就行了，就tmd我们班8个全做，里面的勾使要求还被你超级加倍，老子做一个gns3都被里面灵异的bug整的痛不欲生，实验的量还被你翻了好几倍。上课是枯燥的，小测是频繁的，实验是加量的，真是花最多的时间，拿最低的平时分。
-
-我是考古学家，这旧世纪吧。
-我是汉语言学家，这就是简笔。
-我是虚构史学家，这就是构史。
-
-如何分辨狼和狗？看需求，求安逸是狼，求惊悚是狗。
-wcnmlgb，勾槽的lab8写个几行就想来查老师骂这个b，今天没骂过瘾明天上完课接着骂。
-你tm上课是怎么能够说出小测越多，分数越高这种没有良心的b话的？脑子被驴踢了？真尼玛的逆天下周还要小测。
-How do you test wolf and dog? Look their children, children daughter is wolf, children son is dog.
+1. Hamlet contemplating suicide in his famous soliloquy. (Hamlet)
+To be, or not to be: that is the question:
+Whether tis nobler in the mind to suffer
+The slings and arrows of outrageous fortune,
+Or to take arms against a sea of troubles,
+And by opposing end them. To die: to sleep;
