@@ -11,6 +11,17 @@ extern u_short fcgi_reqID; // fastcgi request ID
 NV_PAIR params[100];
 int num; // number of parameters
 
+// typedef struct 
+// {
+//     /* data */
+//     int stat;
+//     int cs;
+//     time_t start;
+//     int timeout;
+// } TIMER;
+// TIMER Timers[100];
+
+
 static char sock_buff[BUFFER_SIZE];
 static int sock_idx, sock_max;
 int readChar(int sock, char *ch)
@@ -141,6 +152,9 @@ void handleReq(int sock, char *head, char *body, int bodyLen)
             else if (rc == 500) {
                 sendHttpResp(sock, rc, "Internal Server Error", strlen("Internal Server Error"), "text/plain");
             }
+            else if (rc == 404) {
+                sendHttpResp(sock, rc, "File Not Found", strlen("File Not Found"), "text/plain");
+            }
             else {
                 sendHttpResp(sock, rc, buf, len, contextType);
             }
@@ -155,7 +169,7 @@ void transFileName(char *uri) {
     // 动态资源使用绝对路径
     if (strstr(uri, ".php")) {
         // C:\Users\Wan Zhenjie\OneDrive\24Fall\计网\lab\lab8\轻量级WEB服务器\2682\server
-        strcpy(buff, "C:\\Users\\Wan Zhenjie\\OneDrive\\24Fall\\计网\\lab\\lab8\\轻量级WEB服务器\\2682\\server\\");
+        strcpy(buff, "/home/wzj/Coding/LightWeightWebServer/2682/server");
         strcat(buff, uri);
         strcpy(uri, buff);
     } else {
@@ -300,7 +314,8 @@ int getFastCGIResponse(char **buf, int *len, char *content_type) {
         }
         
         getStatusFromHeader(head, &rc);
-        if (rc != 404) {
+        Log("FastCGI response status: %d", rc);
+        if (rc != 404 && rc!=504 && rc!=502) {
             *len = strlen((char *)std_out) -i;
             *buf = (char *)realloc(*buf, *len);
             if (*buf == NULL) rc = 500;
@@ -360,16 +375,74 @@ void getContentTypeFromHeader(char *head, char *content_type)
 
 void getStatusFromHeader(char *head, int *status)
 {
-    char *p = strstr(head, "HTTP/1.1 ");
+    char *p = strstr(head, "Status: ");
     if (p == NULL) {
         Log(YELLOW "No status in header");  
-        *status = 200;
         return;     
     }
-    p += strlen("HTTP/1.1 ");
+    p += strlen("Status: ");
     *status = 0;
     while (*p != ' ') {
         *status = *status * 10 + (*p - '0');
         p++;
     }
 }
+
+// // TIMER
+// int setTimer(int cs, int timeout)
+// {
+//     int i;
+//     for (int i=0; i < 100; i++) {
+//         if (Timers[i].stat == 0) {
+//             Timers[i].stat = 1;
+//             Timers[i].cs = cs;
+//             Timers[i].start = time(NULL);
+//             Timers[i].timeout = timeout;
+//             return 0;
+//         }
+//     }
+// }
+
+// void clrTimer(int i)
+// {
+//     if (i < 0 || i >= 100) return;
+
+//     Timers[i].stat = 0;
+//     Timers[i].cs = 0;
+// }
+
+// void resetTimer(int i)
+// {
+//     if (i < 0 || i >= 100) return;
+//     Timers[i].start = time(NULL);
+// }
+
+// int running;
+// void timer_proc()
+// {
+//     int i;
+//     running = 1;
+//     while (running)
+//     {
+//         /* code */
+//         time_t now = time(NULL);
+//         for (i = 0; i < 100; i++)
+//         {
+//             /* code */
+//             if (Timers[i].stat == 0) continue;
+//             if (now - Timers[i].start >= Timers[i].timeout) {
+//                 shutdown(Timers[i].cs, SHUT_RDWR);
+//                 close(Timers[i].cs);
+//                 Timers[i].stat = 0;
+//                 Timers[i].cs = 0;
+//             }
+//         }
+//         sleep(1);
+//     }
+    
+// }
+
+// void *Thread_Client(void *arg)
+// {
+//     timer_proc();
+// }

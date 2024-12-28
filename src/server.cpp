@@ -179,7 +179,8 @@ void *Server::service(void *arg) {
     }
 
     // wait until server stops 
-    Log("Service thread with client socket id: %d is waiting", clnt_sockid);
+    Log(YELLOW"[Timeout] Service thread with client socket id: %d is closed, waiting to exit", clnt_sockid);
+    close(clnt_sockid);
     if (server_running) {
         pthread_mutex_lock(&lock);
         pthread_cond_wait(&cond, &lock);
@@ -187,8 +188,6 @@ void *Server::service(void *arg) {
     }
 
     if (body != NULL) free(body);
-    close(clnt_sockid);
-    Log("Client socket id: %d closed", clnt_sockid);
     pthread_exit(nullptr);
 }
 
